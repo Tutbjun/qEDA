@@ -1,0 +1,80 @@
+TESTSCENE:
+  WINDOWSETTINGS:
+    FULLSCREEN: True
+    RESOLUTION: 1080
+    RATIO: [16, 9]
+    SIZE_REALWORLD: [200,120]
+  ASSETS:
+    SPRITES:
+      TABLE:
+        NAME: 'TABLE'
+        POS: [0,0]
+        SIZE: [200,80]
+        IMG_NAME: 'workingTable.png'
+      TRAY:
+        INSTANCES: 9
+        OPTIONS:
+          TRAY_OCCUPIED:
+            NAME: 'TRAY_OCCUPIED'
+            SIZE: [27.9,37.9]
+            POSITIONS: [[0,-19],[28,-19],[56,-19],[-28,-19],[-56,-19],[-36,19],[36,19],[-64,19],[64,19]]
+            IMG_NAME: 'tray_occupied.png'
+            CLICK_OPPERATION:
+              COMMANDS: ['toggleSelf']
+              VAR_TO_CHANGE: ['IS_TRAY_OCCUPIED','{instance}'] 
+              VALUE_TO_SET: False
+          TRAY_EMPTY:
+            NAME: 'TRAY_EMPTY'
+            SIZE: [27.9,37.9]
+            POSITIONS: [[0,-19],[28,-19],[56,-19],[-28,-19],[-56,-19],[-36,19],[36,19],[-64,19],[64,19]]
+            IMG_NAME: 'tray_empty.png'
+            CLICK_OPPERATION:
+              COMMANDS: ['toggleSelf']
+              VAR_TO_CHANGE: "['IS_TRAY_OCCUPIED'][{instance}]" 
+              VALUE_TO_SET: True
+      UR:
+        NAME: 'UR'
+        POS: [0,10]
+        SIZE: [30,30]
+        IMG_NAME: 'UR.png'
+    BUTTONS:
+      COMPLETE:
+        TEXT: 'Kør'
+        COMMAND: 'closeWindow'
+        ALLIGNMENT: 'se'
+        ARGUMENTS:
+          SUCCESS: True
+      CANCEL:
+        TEXT: 'Annuller'
+        COMMAND: 'closeWindow'
+        ALLIGNMENT: 'sw'
+        ARGUMENTS:
+          SUCCESS: False
+  RETURNVARS:
+    IS_TRAY_OCCUPIED:
+      NAME: 'IS_TRAY_OCCUPIED'
+      VALUE: True
+      INSTANCES: 9
+GRAPHDRAWER:
+  WINDOWSETTINGS:
+    FULLSCREEN: False
+    RESOLUTION: 240
+    RATIO: [16, 4]
+    SIZE_REALWORLD: [200,120]
+  ASSETS:
+    BUTTONS:
+      COMPLETE:
+        TEXT: 'OK'
+        COMMAND: 'closeWindow'
+        ALLIGNMENT: 'se'
+        ARGUMENTS:
+          SUCCESS: True
+      CANCEL:
+        TEXT: 'Afslut'
+        COMMAND: 'closeWindow'
+        ALLIGNMENT: 'sw'
+        ARGUMENTS:
+          SUCCESS: False
+      EVAL:
+        TEXT: 'Eval'
+        ALLIGNMENT: 's'

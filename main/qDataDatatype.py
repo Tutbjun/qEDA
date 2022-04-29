@@ -1,0 +1,3 @@
+
+class qData():
+    pass
