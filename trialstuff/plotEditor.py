@@ -3,6 +3,7 @@ from copy import copy
 from struct import calcsize
 import wx
 from wx.lib import plot as wxplot
+from wx.lib.agw.floatspin import FloatSpin
 import numpy as np
 from numpy import arange, sin, pi
 import matplotlib
@@ -91,8 +92,18 @@ class plotPanel(wx.Panel):
         self._bitScaling()
         self._applyRSTime()
 
+    def update(self):
+        self.axes.clear()
+        self._applyPlotSettings()
+        self._draw()
+        self.canvas.draw()
 
-    def draw(self):
+    def insertSettings(self,settings):
+        self.bits = settings["bits"]
+        self.signed = settings["signed"]
+        self.riseTime = settings["riseTime"]
+
+    def _draw(self):
         self.axes.plot(self.st, self.ss, color='orange', linewidth=0.3)
         self.axes.plot(self.rt, self.rs, marker='.', linewidth=0)
         
@@ -115,21 +126,31 @@ class settingsPanel(wx.Panel):
         self.sizer.Add(st, 0, wx.EXPAND, 10)
 
         self.settings = {"bits":1,"signed":False,"riseTime":0.05,"maxVal":3.3}
-        def onBitChange(event):
-            self.settings["bits"] = event.GetInt()
+        
 
         bitChoser = wx.BoxSizer(wx.VERTICAL)
         bitChoser.Add(wx.StaticText(self, label="bits:"), 0, wx.EXPAND, 10)
-        bitChoser.Add(wx.SpinCtrl(self, value=str(self.settings["bits"]), min=1, max=8), 0, wx.Left, 10)
+        bitChoserField = wx.SpinCtrl(self, value=str(self.settings["bits"]), min=1, max=8)
+        bitChoser.Add(bitChoserField, 0, wx.Left, 10)
+        bitChoserField.Bind(wx.EVT_TEXT, self.OnBitChange)
+
+        signChooser = wx.CheckBox(self, label='Signed')
+        signChooser.Bind(wx.EVT_CHECKBOX, self.OnSignChange)
+
+        RSChoser = wx.BoxSizer(wx.VERTICAL)
+        RSChoser.Add(wx.StaticText(self, label="R/S time:"), 0, wx.EXPAND, 10)
+        RSChoserField = FloatSpin(self, value=str(self.settings["riseTime"]), min_val=0.0, max_val=1, increment=0.001, digits=3)
+        RSChoser.Add(RSChoserField, 0, wx.EXPAND, 10)
+        RSChoserField.Bind(wx.EVT_TEXT, self.OnRSChange)
 
         gs = wx.GridSizer(5, 5, 20, 2)
         gs.AddMany([
             (bitChoser, 0, wx.Top),
-            (wx.StaticText(self, label="rise/fall"), 0, wx.EXPAND),
+            (RSChoser, 0, wx.EXPAND),
             (wx.StaticText(self, label="max V/I"), 0, wx.EXPAND),
             (wx.StaticText(self), 0, wx.EXPAND),
             (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.CheckBox(self, label='Signed'), 0, wx.Top),
+            (signChooser, 0, wx.Top),
             (wx.StaticText(self, label="variance"), 0, wx.EXPAND),
             (wx.StaticText(self, label="V/I"), 0, wx.EXPAND),
             (wx.StaticText(self), 0, wx.EXPAND),
@@ -160,6 +181,16 @@ class settingsPanel(wx.Panel):
         self.Fit()
         # self.SetAutoLayout(1)
         #self.Fit()
+
+    def OnBitChange(self,event):
+        self.settings["bits"] = event.GetInt()
+
+    def OnSignChange(self,event):
+        self.settings["signed"] = event.IsChecked()
+
+    def OnRSChange(self,event):
+        var = event.GetString()
+        self.settings["riseTime"] = float(var)
 
     def getSettings(self):
         return self.settings
@@ -248,12 +279,15 @@ class mainFrame(wx.Frame):
         #gs = wx.GridSizer(2, 1, 5, 5)
         self.settingsPanel = settingsPanel(self)
         vbox.Add(self.settingsPanel, 1, wx.EXPAND)
+        self.updateButton = wx.Button(self, label="Update")
+        vbox.Add(self.updateButton, 0, wx.EXPAND)
+        self.Bind(wx.EVT_BUTTON, self.OnUpdate, self.updateButton)
         vbox.Add(wx.StaticLine(self), 0, wx.ALL|wx.EXPAND, 5)
         self.plotPanel = plotPanel(self)
         vbox.Add(self.plotPanel, 1, wx.EXPAND)
         
 
-        self.plotPanel.draw()
+        self.plotPanel._draw()
         """gs.AddMany([
             #(helloPanel(self), 0, wx.EXPAND),
             (self.settingsPanel, 0, wx.EXPAND),
@@ -287,6 +321,9 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnExit,  menuBar.fileMenu.exitItem)
         self.Bind(wx.EVT_MENU, self.OnAbout, menuBar.helpMenu.aboutItem)
 
+    def OnUpdate(self, event):
+        self.plotPanel.insertSettings(self.settingsPanel.getSettings())
+        self.plotPanel.update()
 
     def OnExit(self, event):
         #Close the frame, terminating the application.
@@ -312,6 +349,6 @@ if __name__ == '__main__':
     # When this module is run (not imported) then create the app, the
     # frame, show it, and start the event loop.
     app = wx.App()
-    frm = mainFrame(None, title='Hello World 2', size=(1000, 800))
+    frm = mainFrame(None, title="'Hello World' ;)", size=(1200, 1000))
     frm.Show()
     app.MainLoop()
