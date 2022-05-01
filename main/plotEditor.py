@@ -1,4 +1,6 @@
-#wxPython
+"""temp dev file. to be integrated..."""
+
+
 from copy import copy
 from struct import calcsize
 import wx
