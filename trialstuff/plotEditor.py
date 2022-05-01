@@ -101,17 +101,68 @@ class settingsPanel(wx.Panel):
     def __init__(self, *args, **kw):
         super(settingsPanel, self).__init__(*args, **kw)
         self.BackgroundColour = wx.Colour(255, 255, 255)
+        self.sizer = wx.BoxSizer(wx.VERTICAL)
+        
         st = wx.StaticText(self, label="settings:")
         font = st.GetFont()
         #fam = font.GetFamily()
-        font.SetFamily(wx.FONTFAMILY_SCRIPT)
+        #font.SetFamily(wx.FONTFAMILY_SCRIPT)
         font.SetFaceName("Comic Sans MS")
         font = font.Italic()
         font = font.Bold()
+        font.SetPointSize(int(font.GetPointSize()*2))
+        st.SetFont(font)
+        self.sizer.Add(st, 0, wx.EXPAND, 10)
 
-        self.sizer = wx.BoxSizer(wx.VERTICAL)
+        self.settings = {"bits":1,"signed":False,"riseTime":0.05,"maxVal":3.3}
+        def onBitChange(event):
+            self.settings["bits"] = event.GetInt()
+
+        bitChoser = wx.BoxSizer(wx.VERTICAL)
+        bitChoser.Add(wx.StaticText(self, label="bits:"), 0, wx.EXPAND, 10)
+        bitChoser.Add(wx.SpinCtrl(self, value=str(self.settings["bits"]), min=1, max=8), 0, wx.Left, 10)
+
+        gs = wx.GridSizer(5, 5, 20, 2)
+        gs.AddMany([
+            (bitChoser, 0, wx.Top),
+            (wx.StaticText(self, label="rise/fall"), 0, wx.EXPAND),
+            (wx.StaticText(self, label="max V/I"), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.CheckBox(self, label='Signed'), 0, wx.Top),
+            (wx.StaticText(self, label="variance"), 0, wx.EXPAND),
+            (wx.StaticText(self, label="V/I"), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND),
+            (wx.StaticText(self), 0, wx.EXPAND)
+        ])
+        #gs.Detach(0)
+        self.sizer.Add(gs, 0, wx.EXPAND, 5)
+        
+        #self.SetSizer(gs)
+        #self.SetAutoLayout(1)
+        #self.SetupScrolling()
         self.SetSizer(self.sizer)
         self.Fit()
+        # self.SetAutoLayout(1)
+        #self.Fit()
+
+    def getSettings(self):
+        return self.settings
 
 class nextPanel(wx.Panel):
     def __init__(self, *args, **kw):
