@@ -17,7 +17,9 @@ from matplotlib.widgets import Cursor
 from matplotlib import pyplot as plt
 from scipy import signal
 
-#TODO: figure out how to shrink settings panel
+#TODO: make UI updates according to sketch
+#TODO: make mouseover plot disapear when mouse is out of plot
+
 
 class plotPanel(wx.Panel):
     pointSpacing = 0.001
