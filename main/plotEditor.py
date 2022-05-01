@@ -13,15 +13,21 @@ matplotlib.use('WXAgg')
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
 from matplotlib.backends.backend_wx import NavigationToolbar2Wx
 from matplotlib.figure import Figure
+from matplotlib.widgets import Cursor
+from matplotlib import pyplot as plt
+from scipy import signal
 
 class plotPanel(wx.Panel):
     pointSpacing = 0.001
+    mouseAreaWidth = 0.2
 
     def __init__(self, *args, **kw):
         super(plotPanel, self).__init__(*args, **kw)
         self.figure = Figure()
         self.axes = self.figure.add_subplot(111)
         self.canvas = FigureCanvas(self, -1, self.figure)
+        self.curser = Cursor(self.axes, useblit=True, color='red', linewidth=1)
+        self.canvas.mpl_connect('motion_notify_event', self.OnMousePlotMove)
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.sizer.Add(self.canvas, 1, wx.LEFT | wx.TOP | wx.GROW)
         self.SetSizer(self.sizer)
@@ -30,12 +36,23 @@ class plotPanel(wx.Panel):
         self.signed = False
         self.riseTime = 0.05
         self.maxVal = 3.3
+        self.mouseXY = (0,0)
         self._calcInitalPlot()
         self._applyPlotSettings()
     
+    def OnMousePlotMove(self,event):
+        x,y = event.xdata,event.ydata
+        if x is None or y is None:
+            return None
+        else:
+            self.mouseXY = (x,y)
+        self.update()
+
     def _calcInitalPlot(self):
         self.t = arange(0.0, 3.0, self.pointSpacing)
         self.s = sin(2 * pi * self.t)*3.3
+        self.mt = []
+        self.ms = []
     
     def _bitScaling(self):
         self.rs /= self.maxVal
@@ -88,6 +105,27 @@ class plotPanel(wx.Panel):
         self.rs = np.delete(self.rs,is2Del)
         self.rt = np.delete(self.rt,is2Del)
 
+    def _doMouseOverPlot(self):#TODO: needs to be faster
+        #toDel = np.linspace(0,len(self.t),1)
+        mouseStartIndex = 0
+        mouseEndIndex = 0
+        i = 0
+        while self.t[i] < self.mouseXY[0]-self.mouseAreaWidth:
+            i += 1
+            if i >= len(self.t):
+                break
+        mouseStartIndex = i
+        i = len(self.t)-1
+        while self.t[i] > self.mouseXY[0]+self.mouseAreaWidth:
+            i -= 1
+            if i <= 0:
+                break
+        mouseEndIndex = i
+        if mouseStartIndex != mouseEndIndex:
+            self.mt = self.t[mouseStartIndex:mouseEndIndex]
+            #plot gaussian curve across mt:
+            self.ms = signal.gaussian(len(self.mt),std=1/self.mouseAreaWidth*10)*self.mouseXY[1]
+
     def _applyPlotSettings(self):
         self.rt = copy(self.t)
         self.rs = copy(self.s)
@@ -96,9 +134,9 @@ class plotPanel(wx.Panel):
 
     def update(self):
         self.axes.clear()
+        self._doMouseOverPlot()
         self._applyPlotSettings()
         self._draw()
-        self.canvas.draw()
 
     def insertSettings(self,settings):
         self.bits = settings["bits"]
@@ -108,6 +146,10 @@ class plotPanel(wx.Panel):
     def _draw(self):
         self.axes.plot(self.st, self.ss, color='orange', linewidth=0.3)
         self.axes.plot(self.rt, self.rs, marker='.', linewidth=0)
+        self.axes.plot(self.mt, self.ms, marker='.', linewidth=0)
+        self.axes.margins(0.3)
+        self.canvas.draw()
+
         
 
 class settingsPanel(wx.Panel):
