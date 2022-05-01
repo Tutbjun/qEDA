@@ -17,6 +17,8 @@ from matplotlib.widgets import Cursor
 from matplotlib import pyplot as plt
 from scipy import signal
 
+#TODO: figure out how to shrink settings panel
+
 class plotPanel(wx.Panel):
     pointSpacing = 0.001
     mouseAreaWidth = 0.2
@@ -26,8 +28,9 @@ class plotPanel(wx.Panel):
         self.figure = Figure()
         self.axes = self.figure.add_subplot(111)
         self.canvas = FigureCanvas(self, -1, self.figure)
-        self.curser = Cursor(self.axes, useblit=True, color='red', linewidth=1)
+        #self.curser = Cursor(self.axes, useblit=True, color='red', linewidth=1)
         self.canvas.mpl_connect('motion_notify_event', self.OnMousePlotMove)
+        self.canvas.mpl_connect('button_press_event', self.OnMousePlotPress)
         self.sizer = wx.BoxSizer(wx.VERTICAL)
         self.sizer.Add(self.canvas, 1, wx.LEFT | wx.TOP | wx.GROW)
         self.SetSizer(self.sizer)
@@ -46,7 +49,13 @@ class plotPanel(wx.Panel):
             return None
         else:
             self.mouseXY = (x,y)
-        self.update()
+        self.OnUpdate()
+    
+    def OnMousePlotPress(self,event):
+        toUpdate = np.array(range(len(self.mt)))
+        toUpdate_graphSpace = toUpdate + self.mouseStartIndex
+        self.s[toUpdate_graphSpace] = self.ms[toUpdate]
+        self.OnUpdate()
 
     def _calcInitalPlot(self):
         self.t = arange(0.0, 3.0, self.pointSpacing)
@@ -65,6 +74,9 @@ class plotPanel(wx.Panel):
         if not self.signed:
             self.rs = [x if x > 0 else 0 for x in self.rs]
         self.rs = np.array(self.rs,dtype=float)/scalar
+        self.rs = [x if x <= 1 else 1 for x in self.rs]
+        self.rs = [x if x >= -1 else -1 for x in self.rs]
+        self.rs = np.array(self.rs,dtype=float)
         self.rs *= self.maxVal
     
     def _applyRSTime(self):
@@ -107,32 +119,38 @@ class plotPanel(wx.Panel):
 
     def _doMouseOverPlot(self):#TODO: needs to be faster
         #toDel = np.linspace(0,len(self.t),1)
-        mouseStartIndex = 0
-        mouseEndIndex = 0
-        i = 0
-        while self.t[i] < self.mouseXY[0]-self.mouseAreaWidth:
-            i += 1
-            if i >= len(self.t):
-                break
-        mouseStartIndex = i
-        i = len(self.t)-1
-        while self.t[i] > self.mouseXY[0]+self.mouseAreaWidth:
-            i -= 1
-            if i <= 0:
-                break
-        mouseEndIndex = i
-        if mouseStartIndex != mouseEndIndex:
-            self.mt = self.t[mouseStartIndex:mouseEndIndex]
+        
+        mouseStartVal = self.mouseXY[0]-self.mouseAreaWidth
+        mouseEndVal = self.mouseXY[0]+self.mouseAreaWidth
+        mouseStartIndex = int(mouseStartVal/self.pointSpacing)
+        self.mouseStartIndex = mouseStartIndex
+        mouseEndIndex = int(mouseEndVal/self.pointSpacing)
+        if mouseStartIndex < 0:
+            mouseStartIndex = 0
+        if mouseEndIndex >= len(self.bt):
+            mouseEndIndex = len(self.bt)-1
+        if mouseStartIndex != mouseEndIndex and mouseEndIndex > mouseStartIndex:
             #plot gaussian curve across mt:
-            self.ms = signal.gaussian(len(self.mt),std=1/self.mouseAreaWidth*10)*self.mouseXY[1]
+            gaussian = signal.gaussian(2*self.mouseAreaWidth/self.pointSpacing,std=1/self.mouseAreaWidth*10)
+            if mouseStartIndex <= 0:
+                gaussian = gaussian[len(gaussian)-(mouseEndIndex-mouseStartIndex):]
+            elif mouseEndIndex >= len(self.bt)-1:
+                gaussian = gaussian[:(mouseEndIndex-mouseStartIndex)]
+            self.mt = self.bt[mouseStartIndex:mouseEndIndex]
+            #self.mt -= self.mouseAreaWidth
+            self.ms = gaussian*self.mouseXY[1]
+            invGaussian = -gaussian+1
+            self.ms += self.bs[mouseStartIndex:mouseEndIndex]*invGaussian
 
     def _applyPlotSettings(self):
         self.rt = copy(self.t)
         self.rs = copy(self.s)
         self._bitScaling()
+        self.bt = copy(self.rt)
+        self.bs = copy(self.rs)
         self._applyRSTime()
 
-    def update(self):
+    def OnUpdate(self):
         self.axes.clear()
         self._doMouseOverPlot()
         self._applyPlotSettings()
@@ -187,7 +205,7 @@ class settingsPanel(wx.Panel):
         RSChoser.Add(RSChoserField, 0, wx.EXPAND, 10)
         RSChoserField.Bind(wx.EVT_TEXT, self.OnRSChange)
 
-        gs = wx.GridSizer(5, 5, 20, 2)
+        gs = wx.GridSizer(2, 5, 20, 2)
         gs.AddMany([
             (bitChoser, 0, wx.Top),
             (RSChoser, 0, wx.EXPAND),
@@ -198,25 +216,10 @@ class settingsPanel(wx.Panel):
             (wx.StaticText(self, label="variance"), 0, wx.EXPAND),
             (wx.StaticText(self, label="V/I"), 0, wx.EXPAND),
             (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
             (wx.StaticText(self), 0, wx.EXPAND)
         ])
         #gs.Detach(0)
-        self.sizer.Add(gs, 0, wx.EXPAND, 5)
+        self.sizer.Add(gs, 0, wx.Top, 5)
         
         #self.SetSizer(gs)
         #self.SetAutoLayout(1)
@@ -322,16 +325,20 @@ class mainFrame(wx.Frame):
         vbox = wx.BoxSizer(wx.VERTICAL)
         #gs = wx.GridSizer(2, 1, 5, 5)
         self.settingsPanel = settingsPanel(self)
-        vbox.Add(self.settingsPanel, 1, wx.EXPAND)
+        vbox.Add(self.settingsPanel, 1, wx.Left)
         self.updateButton = wx.Button(self, label="Update")
         vbox.Add(self.updateButton, 0, wx.EXPAND)
         self.Bind(wx.EVT_BUTTON, self.OnUpdate, self.updateButton)
         vbox.Add(wx.StaticLine(self), 0, wx.ALL|wx.EXPAND, 5)
-        self.plotPanel = plotPanel(self)
-        vbox.Add(self.plotPanel, 1, wx.EXPAND)
+        self.plotPanels = []
+        self.plotPanels.append(plotPanel(self))
+        self.plotPanels.append(plotPanel(self))
         
-
-        self.plotPanel._draw()
+        
+        for i in range(0, len(self.plotPanels)):
+            vbox.Add(self.plotPanels[i], 1, wx.EXPAND)
+            self.plotPanels[i]._draw()
+        
         """gs.AddMany([
             #(helloPanel(self), 0, wx.EXPAND),
             (self.settingsPanel, 0, wx.EXPAND),
@@ -365,9 +372,9 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnExit,  menuBar.fileMenu.exitItem)
         self.Bind(wx.EVT_MENU, self.OnAbout, menuBar.helpMenu.aboutItem)
 
-    def OnUpdate(self, event):
-        self.plotPanel.insertSettings(self.settingsPanel.getSettings())
-        self.plotPanel.update()
+    def OnUpdate(self, event):#TODO: distinguish between multiple plots
+        self.plotPanels[0].insertSettings(self.settingsPanel.getSettings())
+        self.plotPanels[0].OnUpdate()
 
     def OnExit(self, event):
         #Close the frame, terminating the application.
