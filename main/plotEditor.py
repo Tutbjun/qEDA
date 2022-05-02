@@ -18,7 +18,7 @@ from numba import jit
 #TODO: figure out why gaussian changes plot in the fringes where it shouldn't
 
 @jit
-def _numbaMouseOverCalc(mx : float, my : float, pointSpacing : float, mouseAreaWidth : float, bt : np.array, bs : np.array, gaussianCurve : np.array):
+def _numbaMouseOverCalc(mx : float = 0, my : float = 0, pointSpacing : float = 1, mouseAreaWidth : float = 1, bt : np.array = np.zeros(5), bs : np.array = np.zeros(5), gaussianCurve : np.array = np.ones(5)):
     mouseStartVal = float(mx) - float(mouseAreaWidth)
     mouseEndVal = float(mx+mouseAreaWidth)
     mouseStartIndex = int(mouseStartVal/pointSpacing)
@@ -44,7 +44,7 @@ def _numbaMouseOverCalc(mx : float, my : float, pointSpacing : float, mouseAreaW
         return np.empty(0),np.empty(0), mouseStartIndex, mouseEndIndex
 
 @jit
-def _numbaBitScaling(array : np.array, bits : int, signed : bool, maxVal : float):
+def _numbaBitScaling(array : np.array = np.ones(5), bits : int = 1, signed : bool = False, maxVal : float = 1):
         array /= maxVal
         #rs should be rounded to bits
         scalar = 2**(bits-1)
@@ -62,7 +62,7 @@ def _numbaBitScaling(array : np.array, bits : int, signed : bool, maxVal : float
         return array
 
 @jit
-def _numbaSuperellipseCurve(xs : np.array, n : float):
+def _numbaSuperellipseCurve(xs : np.array = np.zeros(5), n : float = 1):
     def f(x,n):
         return (1 - x**n)**(1/n)
     ret = np.zeros(len(xs),dtype=np.float64)
@@ -71,7 +71,7 @@ def _numbaSuperellipseCurve(xs : np.array, n : float):
     return ret
 
 @jit
-def numbaP2PRise(point1 : np.array, point2 : np.array, dataPoints : int, amount : int = 1):
+def _numbaP2PRise(point1 : np.array = np.array([0,0]), point2 : np.array = np.array([0,0]), dataPoints : int = 1, amount : int = 1):
     #use superellipse formula to make an amount of rise/fall graphs
     ns = np.linspace(float(np.log10(0.25)),float(np.log10(10)),amount)
     ns = np.power(10,ns)
@@ -88,6 +88,12 @@ def numbaP2PRise(point1 : np.array, point2 : np.array, dataPoints : int, amount 
     for i in range(len(xs)):
         xs[i] = X
     return xs.flatten(),ys.flatten()
+
+#startup jit compiling:
+_numbaMouseOverCalc()
+_numbaBitScaling()
+_numbaSuperellipseCurve()
+_numbaP2PRise()
 
 class plotPanel(wx.Panel):
     pointSpacing = 0.001
@@ -201,7 +207,7 @@ class plotPanel(wx.Panel):
                 if i-1-pointsBackward >= 0 and i+pointsForward < len(self.rs):
                     point1 = (self.rt[i-1-pointsBackward],self.rs[i-1-pointsBackward])
                     point2 = (self.rt[i+pointsForward],self.rs[i+pointsForward])
-                    addX, addY = numbaP2PRise(point1,point2,pointsForward+pointsBackward,30)
+                    addX, addY = _numbaP2PRise(point1,point2,pointsForward+pointsBackward,30)
                     self.st = np.append(self.st,addX)
                     self.ss = np.append(self.ss,addY)
                     is2Del.append(range(i-pointsBackward,i+pointsForward))
