@@ -2,62 +2,193 @@
 
 
 from copy import copy
-from struct import calcsize
+#from struct import calcsize
 import wx
-from wx.lib import plot as wxplot
+#from wx.lib import plot as wxplot
 from wx.lib.agw.floatspin import FloatSpin
 import numpy as np
 from numpy import arange, sin, pi
 import matplotlib
 matplotlib.use('WXAgg')
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
-from matplotlib.backends.backend_wx import NavigationToolbar2Wx
+#from matplotlib.backends.backend_wx import NavigationToolbar2Wx
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor
-from matplotlib import pyplot as plt
+#from matplotlib import pyplot as plt
 from scipy import signal
+from numba import jit
 
 #TODO: make UI updates according to sketch
 #TODO: make mouseover plot disapear when mouse is out of plot
+#TODO: figure out why gaussian changes plot in the fringes where it shouldn't
 
+@jit
+def _numbaMouseOverCalc(mx : float, my : float, pointSpacing : float, mouseAreaWidth : float, bt : np.array, bs : np.array, gaussianCurve : np.array):
+    mouseStartVal = float(mx) - float(mouseAreaWidth)
+    mouseEndVal = float(mx+mouseAreaWidth)
+    mouseStartIndex = int(mouseStartVal/pointSpacing)
+    mouseEndIndex = int(mouseEndVal/pointSpacing)
+    if mouseStartIndex < 0:
+        mouseStartIndex = 0
+    if mouseEndIndex >= len(bt):
+        mouseEndIndex = len(bt)-1
+    if mouseStartIndex != mouseEndIndex and mouseEndIndex > mouseStartIndex:
+        #plot gaussian curve across mt:
+        gaussian = gaussianCurve
+        if mouseStartIndex <= 0:
+            gaussian = gaussian[len(gaussian)-(mouseEndIndex-mouseStartIndex):]
+        elif mouseEndIndex >= len(bt)-1:
+            gaussian = gaussian[:(mouseEndIndex-mouseStartIndex)]
+        mt = bt[mouseStartIndex:mouseEndIndex]
+        #self.mt -= self.mouseAreaWidth
+        ms = gaussian*my
+        invGaussian = -gaussian+1
+        ms += bs[mouseStartIndex:mouseEndIndex]*invGaussian
+        return mt, ms, mouseStartIndex, mouseEndIndex
+    else:
+        return np.empty(0),np.empty(0), mouseStartIndex, mouseEndIndex
+
+@jit
+def _numbaBitScaling(array : np.array, bits : int, signed : bool, maxVal : float):
+        array /= maxVal
+        #rs should be rounded to bits
+        scalar = 2**(bits-1)
+        if signed:
+            scalar /= 2
+        array *= scalar
+        array += 0.5
+        for i in range(len(array)):
+            array[i] = int(array[i])
+        if not signed:
+            array = np.clip(array, 0, None)
+        array /= scalar
+        array = np.clip(array, -1, 1)
+        array *= maxVal
+        return array
+
+@jit
+def _numbaSuperellipseCurve(xs : np.array, n : float):
+    def f(x,n):
+        return (1 - x**n)**(1/n)
+    ret = np.zeros(len(xs),dtype=np.float64)
+    for i in range(len(xs)):
+        ret[i] = f(xs[i],n)
+    return ret
+
+@jit
+def numbaP2PRise(point1 : np.array, point2 : np.array, dataPoints : int, amount : int = 1):
+    #use superellipse formula to make an amount of rise/fall graphs
+    ns = np.linspace(float(np.log10(0.25)),float(np.log10(10)),amount)
+    ns = np.power(10,ns)
+    X = np.linspace(0,1,dataPoints)
+    ys = np.zeros((amount,dataPoints),dtype=np.float64)
+    for i in range(len(ns)):
+        ys[i] = _numbaSuperellipseCurve(X,ns[i])
+    X *= (point2[0]-point1[0])
+    X += point1[0]
+    ys *= np.sign(point1[1]-point2[1])
+    ys *= abs(point2[1]-point1[1])
+    ys += point2[1]
+    xs = np.zeros(ys.shape,dtype=np.float64)
+    for i in range(len(xs)):
+        xs[i] = X
+    return xs.flatten(),ys.flatten()
 
 class plotPanel(wx.Panel):
     pointSpacing = 0.001
     mouseAreaWidth = 0.2
+    gaussianCurve = np.array(signal.gaussian(2*mouseAreaWidth/pointSpacing,std=1/mouseAreaWidth*10))
 
     def __init__(self, *args, **kw):
         super(plotPanel, self).__init__(*args, **kw)
+        
+        self._genPlot()
+        self._genSettings()
+        self.sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.sizer.Add(self.canvas, 1, wx.LEFT | wx.TOP | wx.GROW)
+        self.sizer.Add(self.settingsSizer, 0, wx.CENTER)
+        self.SetSizer(self.sizer)
+        self.Fit()
+        #self.bits = 1
+        #self.signed = False
+        #self.riseTime = 0.05
+        #self.maxVal = 3.3
+        self.mouseXY = np.array((0,0),dtype=np.float64)
+        self._calcInitalPlot()
+        self._applyPlotSettings()
+    
+    def _genPlot(self):
         self.figure = Figure()
         self.axes = self.figure.add_subplot(111)
         self.canvas = FigureCanvas(self, -1, self.figure)
         #self.curser = Cursor(self.axes, useblit=True, color='red', linewidth=1)
         self.canvas.mpl_connect('motion_notify_event', self.OnMousePlotMove)
         self.canvas.mpl_connect('button_press_event', self.OnMousePlotPress)
-        self.sizer = wx.BoxSizer(wx.VERTICAL)
-        self.sizer.Add(self.canvas, 1, wx.LEFT | wx.TOP | wx.GROW)
-        self.SetSizer(self.sizer)
-        self.Fit()
-        self.bits = 1
-        self.signed = False
-        self.riseTime = 0.05
-        self.maxVal = 3.3
-        self.mouseXY = (0,0)
-        self._calcInitalPlot()
-        self._applyPlotSettings()
-    
+
+    def _genSettings(self):
+        self.settingsSizer = wx.BoxSizer(wx.VERTICAL)
+        
+        self.settings = {"bits":1,"signed":False,"riseTime":0.05,"maxVal":3.3}
+
+        bitChoser = wx.BoxSizer(wx.VERTICAL)
+        bitChoser.Add(wx.StaticText(self, label="bits:"), 0, wx.EXPAND, 10)
+        bitChoserField = wx.SpinCtrl(self, value=str(self.settings["bits"]), min=1, max=32)
+        bitChoser.Add(bitChoserField, 0, wx.Left, 10)
+        bitChoserField.Bind(wx.EVT_TEXT, self.OnBitChange)
+
+        signChooser = wx.CheckBox(self, label='Signed')
+        signChooser.Bind(wx.EVT_CHECKBOX, self.OnSignChange)
+
+        RSChoser = wx.BoxSizer(wx.VERTICAL)
+        RSChoser.Add(wx.StaticText(self, label="R/S time:"), 0, wx.EXPAND, 10)
+        RSChoserField = FloatSpin(self, value=str(self.settings["riseTime"]), min_val=0.0, max_val=1, increment=0.001, digits=3)
+        RSChoser.Add(RSChoserField, 0, wx.EXPAND, 10)
+        RSChoserField.Bind(wx.EVT_TEXT, self.OnRSChange)
+
+        
+        self.settingsSizer.AddMany([
+            (bitChoser, 0, wx.Top),
+            (RSChoser, 0, wx.EXPAND),
+            (wx.StaticText(self, label="max V/I"), 0, wx.EXPAND),
+            (signChooser, 0, wx.Top),
+            (wx.StaticText(self, label="variance"), 0, wx.EXPAND),
+            (wx.StaticText(self, label="V/I"), 0, wx.EXPAND),
+        ])
+
+    def OnBitChange(self,event):
+        self.settings["bits"] = event.GetInt()
+        self.Update()
+
+    def OnSignChange(self,event):
+        self.settings["signed"] = event.IsChecked()
+        self.Update()
+
+    def OnRSChange(self,event):
+        var = event.GetString()
+        self.settings["riseTime"] = float(var)
+        self.Update()
+
     def OnMousePlotMove(self,event):
         x,y = event.xdata,event.ydata
         if x is None or y is None:
             return None
         else:
-            self.mouseXY = (x,y)
-        self.OnUpdate()
+            self.mouseXY = np.array((x,y),dtype=np.float64)
+            self.Update()
     
     def OnMousePlotPress(self,event):
         toUpdate = np.array(range(len(self.mt)))
         toUpdate_graphSpace = toUpdate + self.mouseStartIndex
+        #TODO: These three lines are so dirty that they might as well be shrown to the composter... Please fix
+        toUpdate_graphSpace + 1
+        if self.mouseStartIndex == 0:
+            toUpdate_graphSpace -= 2
+        
+        #toUpdate_graphSpace += 1
+        toUpdate_graphSpace = np.array([x for x in toUpdate_graphSpace if x >= 0])
+        toUpdate = toUpdate[len(toUpdate)-len(toUpdate_graphSpace):]
         self.s[toUpdate_graphSpace] = self.ms[toUpdate]
-        self.OnUpdate()
+        self.Update()
 
     def _calcInitalPlot(self):
         self.t = arange(0.0, 3.0, self.pointSpacing)
@@ -66,83 +197,30 @@ class plotPanel(wx.Panel):
         self.ms = []
     
     def _bitScaling(self):
-        self.rs /= self.maxVal
-        #rs should be rounded to bits
-        scalar = 2**(self.bits-1)
-        if self.signed:
-            scalar /= 2
-        self.rs *= scalar
-        self.rs = np.round(self.rs)
-        if not self.signed:
-            self.rs = [x if x > 0 else 0 for x in self.rs]
-        self.rs = np.array(self.rs,dtype=float)/scalar
-        self.rs = [x if x <= 1 else 1 for x in self.rs]
-        self.rs = [x if x >= -1 else -1 for x in self.rs]
-        self.rs = np.array(self.rs,dtype=float)
-        self.rs *= self.maxVal
+        self.rs = _numbaBitScaling(self.rs, self.settings["bits"], self.settings["signed"], self.settings["maxVal"])
     
     def _applyRSTime(self):
-        def makeP2PRise(point1,point2,dataPoints,amount=1):
-            #use superellipse formula to make an amount of rise/fall graphs
-            if amount == 1:
-                ns = [1]
-            else:
-                ns = np.linspace(np.log10(0.25),np.log10(10),amount)
-                ns = np.power(10,ns)
-            def curve(xs,n):
-                def f(x,n):
-                    return (1 - x**n)**(1/n)
-                return [f(x,n) for x in xs]
-            X = np.linspace(0,1,dataPoints)
-            ys = np.array([curve(X,n) for n in ns])
-            X *= (point2[0]-point1[0])
-            X += point1[0]
-            ys *= np.sign(point1[1]-point2[1])
-            ys *= abs(point2[1]-point1[1])
-            ys += point2[1]
-            #ys *= -1
-            
-            xs = np.array([X for y in ys])
-            return xs.flatten(),ys.flatten()
+       
+        riseTime = self.settings["riseTime"]
         self.st,self.ss = np.array([]),np.array([])
-        pointsForward = int(self.riseTime/self.pointSpacing/2)
-        pointsBackward = int(self.riseTime/self.pointSpacing/2)
+        pointsForward = int(riseTime/self.pointSpacing/2)
+        pointsBackward = int(riseTime/self.pointSpacing/2)
         is2Del = []
         for i,_ in enumerate(self.rs):
             if (higher := self.rs[i] > self.rs[i-1]) or (lower := self.rs[i] < self.rs[i-1]):
-                point1 = (self.rt[i-1-pointsBackward],self.rs[i-1-pointsBackward])
-                point2 = (self.rt[i+pointsForward],self.rs[i+pointsForward])
-                addX, addY = makeP2PRise(point1,point2,pointsForward+pointsBackward,30)
-                self.st = np.append(self.st,addX)
-                self.ss = np.append(self.ss,addY)
-                is2Del.append(range(i-1-pointsBackward,i+pointsForward))
+                if i-1-pointsBackward >= 0 and i+pointsForward < len(self.rs):
+                    point1 = (self.rt[i-1-pointsBackward],self.rs[i-1-pointsBackward])
+                    point2 = (self.rt[i+pointsForward],self.rs[i+pointsForward])
+                    addX, addY = numbaP2PRise(point1,point2,pointsForward+pointsBackward,30)
+                    self.st = np.append(self.st,addX)
+                    self.ss = np.append(self.ss,addY)
+                    is2Del.append(range(i-pointsBackward,i+pointsForward))
         self.rs = np.delete(self.rs,is2Del)
         self.rt = np.delete(self.rt,is2Del)
 
     def _doMouseOverPlot(self):#TODO: needs to be faster
-        #toDel = np.linspace(0,len(self.t),1)
-        
-        mouseStartVal = self.mouseXY[0]-self.mouseAreaWidth
-        mouseEndVal = self.mouseXY[0]+self.mouseAreaWidth
-        mouseStartIndex = int(mouseStartVal/self.pointSpacing)
+        self.mt, self.ms, mouseStartIndex, _ = _numbaMouseOverCalc(self.mouseXY[0],self.mouseXY[1],self.pointSpacing,self.mouseAreaWidth,self.bt,self.bs,self.gaussianCurve)
         self.mouseStartIndex = mouseStartIndex
-        mouseEndIndex = int(mouseEndVal/self.pointSpacing)
-        if mouseStartIndex < 0:
-            mouseStartIndex = 0
-        if mouseEndIndex >= len(self.bt):
-            mouseEndIndex = len(self.bt)-1
-        if mouseStartIndex != mouseEndIndex and mouseEndIndex > mouseStartIndex:
-            #plot gaussian curve across mt:
-            gaussian = signal.gaussian(2*self.mouseAreaWidth/self.pointSpacing,std=1/self.mouseAreaWidth*10)
-            if mouseStartIndex <= 0:
-                gaussian = gaussian[len(gaussian)-(mouseEndIndex-mouseStartIndex):]
-            elif mouseEndIndex >= len(self.bt)-1:
-                gaussian = gaussian[:(mouseEndIndex-mouseStartIndex)]
-            self.mt = self.bt[mouseStartIndex:mouseEndIndex]
-            #self.mt -= self.mouseAreaWidth
-            self.ms = gaussian*self.mouseXY[1]
-            invGaussian = -gaussian+1
-            self.ms += self.bs[mouseStartIndex:mouseEndIndex]*invGaussian
 
     def _applyPlotSettings(self):
         self.rt = copy(self.t)
@@ -152,16 +230,16 @@ class plotPanel(wx.Panel):
         self.bs = copy(self.rs)
         self._applyRSTime()
 
-    def OnUpdate(self):
+    def Update(self):
         self.axes.clear()
-        self._doMouseOverPlot()
         self._applyPlotSettings()
+        self._doMouseOverPlot()
         self._draw()
 
-    def insertSettings(self,settings):
+    """def insertSettings(self,settings):
         self.bits = settings["bits"]
         self.signed = settings["signed"]
-        self.riseTime = settings["riseTime"]
+        self.riseTime = settings["riseTime"]"""
 
     def _draw(self):
         self.axes.plot(self.st, self.ss, color='orange', linewidth=0.3)
@@ -172,7 +250,7 @@ class plotPanel(wx.Panel):
 
         
 
-class settingsPanel(wx.Panel):
+"""class settingsPanel(wx.Panel):
     def __init__(self, *args, **kw):
         super(settingsPanel, self).__init__(*args, **kw)
         self.BackgroundColour = wx.Colour(255, 255, 255)
@@ -196,16 +274,16 @@ class settingsPanel(wx.Panel):
         bitChoser.Add(wx.StaticText(self, label="bits:"), 0, wx.EXPAND, 10)
         bitChoserField = wx.SpinCtrl(self, value=str(self.settings["bits"]), min=1, max=8)
         bitChoser.Add(bitChoserField, 0, wx.Left, 10)
-        bitChoserField.Bind(wx.EVT_TEXT, self.OnBitChange)
+        #bitChoserField.Bind(wx.EVT_TEXT, self.OnBitChange)
 
         signChooser = wx.CheckBox(self, label='Signed')
-        signChooser.Bind(wx.EVT_CHECKBOX, self.OnSignChange)
+        #signChooser.Bind(wx.EVT_CHECKBOX, self.OnSignChange)
 
         RSChoser = wx.BoxSizer(wx.VERTICAL)
         RSChoser.Add(wx.StaticText(self, label="R/S time:"), 0, wx.EXPAND, 10)
         RSChoserField = FloatSpin(self, value=str(self.settings["riseTime"]), min_val=0.0, max_val=1, increment=0.001, digits=3)
         RSChoser.Add(RSChoserField, 0, wx.EXPAND, 10)
-        RSChoserField.Bind(wx.EVT_TEXT, self.OnRSChange)
+        #RSChoserField.Bind(wx.EVT_TEXT, self.OnRSChange)
 
         gs = wx.GridSizer(2, 5, 20, 2)
         gs.AddMany([
@@ -231,18 +309,8 @@ class settingsPanel(wx.Panel):
         # self.SetAutoLayout(1)
         #self.Fit()
 
-    def OnBitChange(self,event):
-        self.settings["bits"] = event.GetInt()
-
-    def OnSignChange(self,event):
-        self.settings["signed"] = event.IsChecked()
-
-    def OnRSChange(self,event):
-        var = event.GetString()
-        self.settings["riseTime"] = float(var)
-
     def getSettings(self):
-        return self.settings
+        return self.settings"""
 
 class nextPanel(wx.Panel):
     def __init__(self, *args, **kw):
@@ -326,12 +394,12 @@ class mainFrame(wx.Frame):
         self.makeMenuBar()
         vbox = wx.BoxSizer(wx.VERTICAL)
         #gs = wx.GridSizer(2, 1, 5, 5)
-        self.settingsPanel = settingsPanel(self)
-        vbox.Add(self.settingsPanel, 1, wx.Left)
-        self.updateButton = wx.Button(self, label="Update")
-        vbox.Add(self.updateButton, 0, wx.EXPAND)
-        self.Bind(wx.EVT_BUTTON, self.OnUpdate, self.updateButton)
-        vbox.Add(wx.StaticLine(self), 0, wx.ALL|wx.EXPAND, 5)
+        #self.settingsPanel = settingsPanel(self)
+        #vbox.Add(self.settingsPanel, 1, wx.Left)
+        #self.updateButton = wx.Button(self, label="Update")
+        #vbox.Add(self.updateButton, 0, wx.EXPAND)
+        #self.Bind(wx.EVT_BUTTON, self.OnUpdate, self.updateButton)
+        #vbox.Add(wx.StaticLine(self), 0, wx.ALL|wx.EXPAND, 5)
         self.plotPanels = []
         self.plotPanels.append(plotPanel(self))
         self.plotPanels.append(plotPanel(self))
@@ -374,9 +442,9 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnExit,  menuBar.fileMenu.exitItem)
         self.Bind(wx.EVT_MENU, self.OnAbout, menuBar.helpMenu.aboutItem)
 
-    def OnUpdate(self, event):#TODO: distinguish between multiple plots
+    """def OnUpdate(self, event):
         self.plotPanels[0].insertSettings(self.settingsPanel.getSettings())
-        self.plotPanels[0].OnUpdate()
+        self.plotPanels[0].OnUpdate()"""
 
     def OnExit(self, event):
         #Close the frame, terminating the application.
