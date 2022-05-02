@@ -1,6 +1,8 @@
 """temp dev file. to be integrated..."""
 
 from copy import copy
+from functools import partial
+from genericpath import exists
 import wx
 from wx.lib.agw.floatspin import FloatSpin
 import numpy as np
@@ -16,6 +18,8 @@ from numba import jit
 #TODO: make UI updates according to sketch
 #TODO: make mouseover plot disapear when mouse is out of plot
 #TODO: figure out why gaussian changes plot in the fringes where it shouldn't
+
+doInitialJITCompilation = False
 
 @jit
 def _numbaMouseOverCalc(mx : float = 0, my : float = 0, pointSpacing : float = 1, mouseAreaWidth : float = 1, bt : np.array = np.zeros(5), bs : np.array = np.zeros(5), gaussianCurve : np.array = np.ones(5)):
@@ -51,9 +55,9 @@ def _numbaBitScaling(array : np.array = np.ones(5), bits : int = 1, signed : boo
         if signed:
             scalar /= 2
         array *= scalar
-        array += 0.5
+        #array = np.round(array)
         for i in range(len(array)):
-            array[i] = int(array[i])
+            array[i] = np.round(array[i])
         if not signed:
             array = np.clip(array, 0, None)
         array /= scalar
@@ -90,21 +94,24 @@ def _numbaP2PRise(point1 : np.array = np.array([0,0]), point2 : np.array = np.ar
     return xs.flatten(),ys.flatten()
 
 #startup jit compiling:
-_numbaMouseOverCalc()
-_numbaBitScaling()
-_numbaSuperellipseCurve()
-_numbaP2PRise()
+if doInitialJITCompilation:
+    _numbaMouseOverCalc()
+    _numbaBitScaling()
+    _numbaSuperellipseCurve()
+    _numbaP2PRise()
 
 class plotPanel(wx.Panel):
-    pointSpacing = 0.001
+    pointSpacing = 0.0005
     mouseAreaWidth = 0.2
-    gaussianCurve = np.array(signal.gaussian(2*mouseAreaWidth/pointSpacing,std=1/mouseAreaWidth*10))
+    gaussianCurve = np.array(signal.gaussian(2*mouseAreaWidth/pointSpacing,std=1/mouseAreaWidth*20))
 
     def __init__(self, *args, **kw):
         super(plotPanel, self).__init__(*args, **kw)
         self._genPlot()
         self._genSettings()
+        self._genManagement()
         self.sizer = wx.BoxSizer(wx.HORIZONTAL)
+        self.sizer.Add(self.managementSizer, 0, wx.CENTER)
         self.sizer.Add(self.canvas, 1, wx.LEFT | wx.TOP | wx.GROW)
         self.sizer.Add(self.settingsSizer, 0, wx.CENTER)
         self.SetSizer(self.sizer)
@@ -120,6 +127,15 @@ class plotPanel(wx.Panel):
         #self.curser = Cursor(self.axes, useblit=True, color='red', linewidth=1)
         self.canvas.mpl_connect('motion_notify_event', self.OnMousePlotMove)
         self.canvas.mpl_connect('button_press_event', self.OnMousePlotPress)
+    
+    def _genManagement(self):
+        self.managementSizer = wx.BoxSizer(wx.VERTICAL)
+        self.plusButton = wx.Button(self, label='+', size=(20,20), style=wx.BU_EXACTFIT, id=wx.ID_ANY)
+        self.minusButton = wx.Button(self, label='-', size=(20,20), style=wx.BU_EXACTFIT, id=wx.ID_ANY)
+        self.managementSizer.Add(self.minusButton, 0, wx.TOP)
+        self.managementSizer.Add(self.plusButton, 0, wx.BOTTOM)
+        #self.managementSizer.Add(wx.StaticText(self, label='Plot Settings:'), 0, wx.ALL, 5)
+        
 
     def _genSettings(self):
         self.settingsSizer = wx.BoxSizer(wx.VERTICAL)
@@ -216,6 +232,7 @@ class plotPanel(wx.Panel):
 
     def _doMouseOverPlot(self):#TODO: needs to be faster
         self.mt, self.ms, mouseStartIndex, _ = _numbaMouseOverCalc(self.mouseXY[0],self.mouseXY[1],self.pointSpacing,self.mouseAreaWidth,self.bt,self.bs,self.gaussianCurve)
+        self.ms = _numbaBitScaling(self.ms, self.settings["bits"], self.settings["signed"], self.settings["maxVal"])
         self.mouseStartIndex = mouseStartIndex
 
     def _applyPlotSettings(self):
@@ -298,29 +315,90 @@ class appPlotMenu(wx.Menu):
         #self.Bind(wx.EVT_MENU, self.OnPlotDraw1, id=206)
 
 class mainFrame(wx.Frame):
-    #A Frame that says Hello World
     def __init__(self, *args, **kw):
         super(mainFrame, self).__init__(*args, **kw)
         self.BackgroundColour = wx.Colour(255, 255, 255)
         frameIcon = wx.Icon("./icons/wxwin.ico")
         self.SetIcon(frameIcon)
         self.makeMenuBar()
-        vbox = wx.BoxSizer(wx.VERTICAL)
-        self.plotPanels = []
-        self.plotPanels.append(plotPanel(self))
-        self.plotPanels.append(plotPanel(self))
-        
-        for i in range(0, len(self.plotPanels)):
-            vbox.Add(self.plotPanels[i], 1, wx.EXPAND)
-            self.plotPanels[i]._draw()
-        
+        self.vbox = wx.BoxSizer(wx.VERTICAL)
+        self.plotSizer = wx.BoxSizer(wx.VERTICAL)
         self.terminal = wx.TextCtrl(self, style=wx.TE_RIGHT)
-        vbox.Add(self.terminal, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
-        self.SetSizer(vbox)
+        self.vbox.Add(self.terminal, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
+        self.vbox.Add(self.plotSizer, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
+        self.plotPanels = []
+        self.panelIds = []#because this variable exists, I hereby declare myself to be a crazy son of a bitch
+        self.addPlotPanel()
+        self.bindPMButtons(self.plotPanels)
+        
+        self.SetSizer(self.plotSizer)
         
         # and a status bar
         self.CreateStatusBar()
         self.SetStatusText("Welcome to wxPython!")
+
+    def onPlusButton(self, index, event):
+        print(index)
+        while index not in self.panelIds:
+            index -= 1
+        print(index)
+        self.addPlotPanel(index)
+
+    def onMinusButton(self, index, event):
+        print(index)
+        while index not in self.panelIds:
+            index -= 1
+        print(index)
+        self.removePlotPanel(index)
+
+    def bindPMButtons(self, panels : list):
+        for i in range(len(panels)):
+            handled_events = set()
+            """for event, handler, source in panels[i].plusButton._bound_events:
+                if source is None:
+                    if event not in handled_events:
+                        handled_events.add(event)
+                        panels[i].plusButton.Unbind(event)
+                else:
+                    if not panels[i].plusButton.Unbind(event, source, handler=handler):"""
+
+            if 'plusButton' in panels[i].__dict__:
+                panels[i].plusButton.Bind(wx.EVT_BUTTON, partial(self.onPlusButton, i))
+            if 'minusButton' in panels[i].__dict__:
+                panels[i].minusButton.Bind(wx.EVT_BUTTON, partial(self.onMinusButton, i))
+
+    def addPlotPanel(self,index : int = -1):
+        if index == -1:
+            self.plotPanels.append(plotPanel(self))
+            self.plotSizer.Add(self.plotPanels[index], 1, wx.EXPAND)
+            self.panelIds.append(index+1)
+        elif index < 0:
+            raise IndexError("Index must be greater than or equal to -1")
+        else:
+            self.plotPanels.insert(index, plotPanel(self))
+            self.plotSizer.Insert(index+1, self.plotPanels[index], 1, wx.EXPAND)
+            self.panelIds.insert(index+1, index+1)
+            for i in range(index+2, len(self.plotPanels)):
+                self.panelIds[i] += 1
+        #index += 1
+        #self.plotPanels.append(plotPanel(self))
+        self.bindPMButtons(self.plotPanels)
+        self.SetSizer(self.plotSizer)
+        #self.Fit()
+        self.Layout()
+        self.plotPanels[index]._draw()
+    
+    def removePlotPanel(self, index : int):
+        if len(self.plotPanels) > 1:
+            #self.vbox.Remove(self.plotPanels[index])
+            self.plotPanels[index].Destroy()
+            self.plotPanels.pop(index)
+            #self.plotSizer.Remove(index)
+            self.panelIds.pop(index)
+            for i in range(index, len(self.plotPanels)):
+                self.panelIds[i] -= 1
+        self.SetSizer(self.plotSizer)
+        self.Layout()
 
     def makeMenuBar(self):
         #A menu bar is composed of menus, which are composed of menu items.
