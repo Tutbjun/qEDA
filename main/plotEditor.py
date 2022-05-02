@@ -1,20 +1,15 @@
 """temp dev file. to be integrated..."""
 
-
 from copy import copy
-#from struct import calcsize
 import wx
-#from wx.lib import plot as wxplot
 from wx.lib.agw.floatspin import FloatSpin
 import numpy as np
 from numpy import arange, sin, pi
 import matplotlib
 matplotlib.use('WXAgg')
 from matplotlib.backends.backend_wxagg import FigureCanvasWxAgg as FigureCanvas
-#from matplotlib.backends.backend_wx import NavigationToolbar2Wx
 from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor
-#from matplotlib import pyplot as plt
 from scipy import signal
 from numba import jit
 
@@ -101,7 +96,6 @@ class plotPanel(wx.Panel):
 
     def __init__(self, *args, **kw):
         super(plotPanel, self).__init__(*args, **kw)
-        
         self._genPlot()
         self._genSettings()
         self.sizer = wx.BoxSizer(wx.HORIZONTAL)
@@ -109,10 +103,6 @@ class plotPanel(wx.Panel):
         self.sizer.Add(self.settingsSizer, 0, wx.CENTER)
         self.SetSizer(self.sizer)
         self.Fit()
-        #self.bits = 1
-        #self.signed = False
-        #self.riseTime = 0.05
-        #self.maxVal = 3.3
         self.mouseXY = np.array((0,0),dtype=np.float64)
         self._calcInitalPlot()
         self._applyPlotSettings()
@@ -236,81 +226,12 @@ class plotPanel(wx.Panel):
         self._doMouseOverPlot()
         self._draw()
 
-    """def insertSettings(self,settings):
-        self.bits = settings["bits"]
-        self.signed = settings["signed"]
-        self.riseTime = settings["riseTime"]"""
-
     def _draw(self):
         self.axes.plot(self.st, self.ss, color='orange', linewidth=0.3)
         self.axes.plot(self.rt, self.rs, marker='.', linewidth=0)
         self.axes.plot(self.mt, self.ms, marker='.', linewidth=0)
         self.axes.margins(0.3)
         self.canvas.draw()
-
-        
-
-"""class settingsPanel(wx.Panel):
-    def __init__(self, *args, **kw):
-        super(settingsPanel, self).__init__(*args, **kw)
-        self.BackgroundColour = wx.Colour(255, 255, 255)
-        self.sizer = wx.BoxSizer(wx.VERTICAL)
-        
-        st = wx.StaticText(self, label="settings:")
-        font = st.GetFont()
-        #fam = font.GetFamily()
-        #font.SetFamily(wx.FONTFAMILY_SCRIPT)
-        font.SetFaceName("Comic Sans MS")
-        font = font.Italic()
-        font = font.Bold()
-        font.SetPointSize(int(font.GetPointSize()*2))
-        st.SetFont(font)
-        self.sizer.Add(st, 0, wx.EXPAND, 10)
-
-        self.settings = {"bits":1,"signed":False,"riseTime":0.05,"maxVal":3.3}
-        
-
-        bitChoser = wx.BoxSizer(wx.VERTICAL)
-        bitChoser.Add(wx.StaticText(self, label="bits:"), 0, wx.EXPAND, 10)
-        bitChoserField = wx.SpinCtrl(self, value=str(self.settings["bits"]), min=1, max=8)
-        bitChoser.Add(bitChoserField, 0, wx.Left, 10)
-        #bitChoserField.Bind(wx.EVT_TEXT, self.OnBitChange)
-
-        signChooser = wx.CheckBox(self, label='Signed')
-        #signChooser.Bind(wx.EVT_CHECKBOX, self.OnSignChange)
-
-        RSChoser = wx.BoxSizer(wx.VERTICAL)
-        RSChoser.Add(wx.StaticText(self, label="R/S time:"), 0, wx.EXPAND, 10)
-        RSChoserField = FloatSpin(self, value=str(self.settings["riseTime"]), min_val=0.0, max_val=1, increment=0.001, digits=3)
-        RSChoser.Add(RSChoserField, 0, wx.EXPAND, 10)
-        #RSChoserField.Bind(wx.EVT_TEXT, self.OnRSChange)
-
-        gs = wx.GridSizer(2, 5, 20, 2)
-        gs.AddMany([
-            (bitChoser, 0, wx.Top),
-            (RSChoser, 0, wx.EXPAND),
-            (wx.StaticText(self, label="max V/I"), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (signChooser, 0, wx.Top),
-            (wx.StaticText(self, label="variance"), 0, wx.EXPAND),
-            (wx.StaticText(self, label="V/I"), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND),
-            (wx.StaticText(self), 0, wx.EXPAND)
-        ])
-        #gs.Detach(0)
-        self.sizer.Add(gs, 0, wx.Top, 5)
-        
-        #self.SetSizer(gs)
-        #self.SetAutoLayout(1)
-        #self.SetupScrolling()
-        self.SetSizer(self.sizer)
-        self.Fit()
-        # self.SetAutoLayout(1)
-        #self.Fit()
-
-    def getSettings(self):
-        return self.settings"""
 
 class nextPanel(wx.Panel):
     def __init__(self, *args, **kw):
@@ -370,20 +291,6 @@ class appPlotMenu(wx.Menu):
                     'Draw Sin and Cos curves')
         #self.Bind(wx.EVT_MENU, self.OnPlotDraw1, id=206)
 
-
-"""class appMenuBar(wx.MenuBar):
-    def __init__(self, *args, **kw):
-        super(appMenuBar, self).__init__(*args, **kw)
-        # Make a file menu with Hello and Exit items
-        # The "\t..." syntax defines an accelerator key that also triggers
-        # the same event
-        self.fileMenu = appFileMenu()
-        self.helpMenu = appHelpMenu()
-        self.plotMenu = appPlotMenu()
-        self.Append(self.fileMenu, "&File")
-        self.Append(self.helpMenu, "&Help")
-        self.Append(self.plotMenu, "&Plot")"""
-
 class mainFrame(wx.Frame):
     #A Frame that says Hello World
     def __init__(self, *args, **kw):
@@ -393,33 +300,18 @@ class mainFrame(wx.Frame):
         self.SetIcon(frameIcon)
         self.makeMenuBar()
         vbox = wx.BoxSizer(wx.VERTICAL)
-        #gs = wx.GridSizer(2, 1, 5, 5)
-        #self.settingsPanel = settingsPanel(self)
-        #vbox.Add(self.settingsPanel, 1, wx.Left)
-        #self.updateButton = wx.Button(self, label="Update")
-        #vbox.Add(self.updateButton, 0, wx.EXPAND)
-        #self.Bind(wx.EVT_BUTTON, self.OnUpdate, self.updateButton)
-        #vbox.Add(wx.StaticLine(self), 0, wx.ALL|wx.EXPAND, 5)
         self.plotPanels = []
         self.plotPanels.append(plotPanel(self))
         self.plotPanels.append(plotPanel(self))
-        
         
         for i in range(0, len(self.plotPanels)):
             vbox.Add(self.plotPanels[i], 1, wx.EXPAND)
             self.plotPanels[i]._draw()
         
-        """gs.AddMany([
-            #(helloPanel(self), 0, wx.EXPAND),
-            (self.settingsPanel, 0, wx.EXPAND),
-            (self.plotPanel, 0, wx.EXPAND)])
-        vbox.Add(gs, proportion=1, flag=wx.EXPAND)"""
         self.terminal = wx.TextCtrl(self, style=wx.TE_RIGHT)
         vbox.Add(self.terminal, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
         self.SetSizer(vbox)
-        # create a menu bar
         
-
         # and a status bar
         self.CreateStatusBar()
         self.SetStatusText("Welcome to wxPython!")
@@ -442,19 +334,13 @@ class mainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.OnExit,  menuBar.fileMenu.exitItem)
         self.Bind(wx.EVT_MENU, self.OnAbout, menuBar.helpMenu.aboutItem)
 
-    """def OnUpdate(self, event):
-        self.plotPanels[0].insertSettings(self.settingsPanel.getSettings())
-        self.plotPanels[0].OnUpdate()"""
-
     def OnExit(self, event):
         #Close the frame, terminating the application.
         self.Close(True)
 
-
     def OnHello(self, event):
         #Say hello to the user.
         wx.MessageBox("Hello again from wxPython")
-
 
     def OnAbout(self, event):
         #Display an About Dialog
@@ -464,7 +350,6 @@ class mainFrame(wx.Frame):
     
     def onTrigPlot(self, event):
         self.plotPanel.plotTrig()
-
 
 if __name__ == '__main__':
     # When this module is run (not imported) then create the app, the
