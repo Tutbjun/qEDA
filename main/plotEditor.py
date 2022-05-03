@@ -3,6 +3,7 @@
 from copy import copy
 from functools import partial
 from genericpath import exists
+import os
 import wx
 from wx.lib.agw.floatspin import FloatSpin
 import numpy as np
@@ -14,10 +15,12 @@ from matplotlib.figure import Figure
 from matplotlib.widgets import Cursor
 from scipy import signal
 from numba import jit
+from pandas import DataFrame
 
 #TODO: make UI updates according to sketch
 #TODO: make mouseover plot disapear when mouse is out of plot
 #TODO: figure out why gaussian changes plot in the fringes where it shouldn't
+#TODO: fix broken layout
 
 doInitialJITCompilation = False
 
@@ -100,6 +103,8 @@ if doInitialJITCompilation:
     _numbaSuperellipseCurve()
     _numbaP2PRise()
 
+
+
 class plotPanel(wx.Panel):
     pointSpacing = 0.0005
     mouseAreaWidth = 0.2
@@ -135,7 +140,6 @@ class plotPanel(wx.Panel):
         self.managementSizer.Add(self.minusButton, 0, wx.TOP)
         self.managementSizer.Add(self.plusButton, 0, wx.BOTTOM)
         #self.managementSizer.Add(wx.StaticText(self, label='Plot Settings:'), 0, wx.ALL, 5)
-        
 
     def _genSettings(self):
         self.settingsSizer = wx.BoxSizer(wx.VERTICAL)
@@ -255,6 +259,13 @@ class plotPanel(wx.Panel):
         self.axes.plot(self.mt, self.ms, marker='.', linewidth=0)
         self.axes.margins(0.3)
         self.canvas.draw()
+    
+    def getGraph(self):
+        X = self.st
+        X = np.append(X,self.rt)
+        Y = self.ss
+        Y = np.append(Y,self.rs)
+        return X,Y
 
 class nextPanel(wx.Panel):
     def __init__(self, *args, **kw):
@@ -293,6 +304,8 @@ class appFileMenu(wx.Menu):
         # the same event
         self.helloItem = self.Append(-1, "&Hello...\tCtrl-H",
                 "Help string shown in status bar for this menu item")
+        self.saveItem = self.Append(-1, "&Save...\tCtrl-S",
+                "Save graphs to file")
         self.AppendSeparator()
         # When using a stock ID we don't need to specify the menu item's
         # label
@@ -314,28 +327,57 @@ class appPlotMenu(wx.Menu):
                     'Draw Sin and Cos curves')
         #self.Bind(wx.EVT_MENU, self.OnPlotDraw1, id=206)
 
-class mainFrame(wx.Frame):
+class plotFrame(wx.Frame):
+    class plotPanelParent(wx.Panel):
+        def __init__(self, *args, **kw):
+            super(plotFrame.plotPanelParent, self).__init__(*args,**kw)
+            self.plotPanels = []
+            self.panelIds = []#because this variable exists, I hereby declare myself to be a crazy son of a bitch
+            self.plotSizer = wx.BoxSizer(wx.VERTICAL)
+
     def __init__(self, *args, **kw):
-        super(mainFrame, self).__init__(*args, **kw)
+        super(plotFrame, self).__init__(*args, **kw)
         self.BackgroundColour = wx.Colour(255, 255, 255)
         frameIcon = wx.Icon("./icons/wxwin.ico")
         self.SetIcon(frameIcon)
         self.makeMenuBar()
         self.vbox = wx.BoxSizer(wx.VERTICAL)
-        self.plotSizer = wx.BoxSizer(wx.VERTICAL)
+        #self.plotSizer = wx.BoxSizer(wx.VERTICAL)
+        self.plotPanel = self.plotPanelParent(self)
         self.terminal = wx.TextCtrl(self, style=wx.TE_RIGHT)
         self.vbox.Add(self.terminal, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
-        self.vbox.Add(self.plotSizer, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
-        self.plotPanels = []
-        self.panelIds = []#because this variable exists, I hereby declare myself to be a crazy son of a bitch
+        self.vbox.Add(self.plotPanel, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
         self.addPlotPanel()
-        self.bindPMButtons(self.plotPanels)
+
+        self.saveButton = wx.Button(self, label="Save")
+        self.vbox.Add(self.saveButton, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
+        self.SetSizer(self.vbox)
         
-        self.SetSizer(self.plotSizer)
+        
+        self.bindPMButtons(self.plotPanel.plotPanels)
+        
+        #self.SetSizer(self.plotSizer)
+        #self.SetSizerAndFit(self.vbox)
+        #self.SetSizerAndFit(self.plotSizer)
+        #self.Centre()
+        self.Layout()
         
         # and a status bar
         self.CreateStatusBar()
         self.SetStatusText("Welcome to wxPython!")
+
+    def onSaveGraphs(self, event):
+        if not os.path.exists("./graphs_export"):
+            os.mkdir("graphs_export")
+        for i in range(len(self.plotPanel.plotPanels)):
+            X,Y = self.plotPanel.plotPanels[i].getGraph()
+            if (fileName := os.path.join("graphs_export",f"plotFrame_X_graph{i}.xlsx")) in os.listdir():
+                os.remove(fileName)
+            df = DataFrame({"X":X, "Y":Y})
+            df.to_excel(fileName)
+            if (fileName := os.path.join("graphs_export",f"plotFrame_X_graph{i}.csv")) in os.listdir():
+                os.remove(fileName)
+            df.to_csv(fileName)
 
     def onPlusButton(self, index, event):
         print(index)
@@ -369,35 +411,35 @@ class mainFrame(wx.Frame):
 
     def addPlotPanel(self,index : int = -1):
         if index == -1:
-            self.plotPanels.append(plotPanel(self))
-            self.plotSizer.Add(self.plotPanels[index], 1, wx.EXPAND)
-            self.panelIds.append(index+1)
+            self.plotPanel.plotPanels.append(plotPanel(self))
+            self.plotPanel.plotSizer.Add(self.plotPanel.plotPanels[index], 1, wx.EXPAND)
+            self.plotPanel.panelIds.append(index+1)
         elif index < 0:
             raise IndexError("Index must be greater than or equal to -1")
         else:
-            self.plotPanels.insert(index, plotPanel(self))
-            self.plotSizer.Insert(index+1, self.plotPanels[index], 1, wx.EXPAND)
-            self.panelIds.insert(index+1, index+1)
-            for i in range(index+2, len(self.plotPanels)):
-                self.panelIds[i] += 1
+            self.plotPanel.plotPanels.insert(index, plotPanel(self))
+            self.plotPanel.plotSizer.Insert(index+1, self.plotPanel.plotPanels[index], 1, wx.EXPAND)
+            self.plotPanel.panelIds.insert(index+1, index+1)
+            for i in range(index+2, len(self.plotPanel.plotPanels)):
+                self.plotPanel.panelIds[i] += 1
         #index += 1
         #self.plotPanels.append(plotPanel(self))
-        self.bindPMButtons(self.plotPanels)
-        self.SetSizer(self.plotSizer)
+        self.bindPMButtons(self.plotPanel.plotPanels)
+        self.SetSizer(self.plotPanel.plotSizer)
         #self.Fit()
         self.Layout()
-        self.plotPanels[index]._draw()
+        self.plotPanel.plotPanels[index]._draw()
     
     def removePlotPanel(self, index : int):
         if len(self.plotPanels) > 1:
             #self.vbox.Remove(self.plotPanels[index])
-            self.plotPanels[index].Destroy()
-            self.plotPanels.pop(index)
+            self.plotPanel.plotPanels[index].Destroy()
+            self.plotPanel.plotPanels.pop(index)
             #self.plotSizer.Remove(index)
-            self.panelIds.pop(index)
-            for i in range(index, len(self.plotPanels)):
-                self.panelIds[i] -= 1
-        self.SetSizer(self.plotSizer)
+            self.plotPanel.panelIds.pop(index)
+            for i in range(index, len(self.plotPanel.plotPanels)):
+                self.plotPanel.panelIds[i] -= 1
+        self.SetSizer(self.plotPanel.plotSizer)
         self.Layout()
 
     def makeMenuBar(self):
@@ -412,6 +454,7 @@ class mainFrame(wx.Frame):
         menuBar.plotMenu = appPlotMenu()
         menuBar.Append(menuBar.plotMenu, "&Plot")
         self.SetMenuBar(menuBar)
+        self.Bind(wx.EVT_MENU, self.onSaveGraphs, menuBar.fileMenu.saveItem)
         self.Bind(wx.EVT_MENU, self.OnHello, menuBar.fileMenu.helloItem)
         self.Bind(wx.EVT_MENU, self.OnHello, menuBar.plotMenu.helloItem)
         self.Bind(wx.EVT_MENU, self.onTrigPlot, menuBar.plotMenu.sinCosItem)
@@ -439,6 +482,6 @@ if __name__ == '__main__':
     # When this module is run (not imported) then create the app, the
     # frame, show it, and start the event loop.
     app = wx.App()
-    frm = mainFrame(None, title="'Hello World' ;)", size=(1200, 1000))
+    frm = plotFrame(None, title="'Hello World' ;)", size=(1200, 1000))
     frm.Show()
     app.MainLoop()
