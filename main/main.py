@@ -22,6 +22,7 @@ def full_qEDA_loop():
     parserWindow.run()
     humanInput = parserWindow.getData()
     #perform preprocessing on the data via humanoidInterpreter ##this is thought to be an AI stage that converts text and roudamentary specifications into a mathematically defined criteria
+    data = humanoidInterpreter.interpret(humanInput)
     #extrapolate on the data with dataExtrapolator ##since it would be inposible for a human to point out what the circuit should do within the full vectorspace, this is a stage that extrapolates to the full vectorspace
     #convert the data to tensors with input2Tensor ##before only circuit criteria has been defined, this is a stage that defines a tensor from the criteria
     #then find the needed components with a quantum factorization algorithm (edaTensorFactorizer) ##this is where stuff goes down

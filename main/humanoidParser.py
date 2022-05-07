@@ -383,16 +383,20 @@ class plotFrame(wx.Frame):
             df.to_csv(fileName)
         self.endSaveButtonDotter()
 
-    def onSaveGraphs(self, event):
-        if not os.path.exists(os.path.join(pyFile,"graphs_export")):
-            os.mkdir("graphs_export")
-        for f in os.listdir(os.path.join(pyFile,"graphs_export")):
-            os.remove(os.path.join(pyFile,"graphs_export",f))
+    def getPlotData(self):
         Xs, Ys = [], []
         for i in range(len(self.plotPanel.plotPanels)):
             X,Y = self.plotPanel.plotPanels[i].getGraph()
             Xs.append(X)
             Ys.append(Y)
+        return Xs, Ys
+
+    def onSaveGraphs(self, event):
+        if not os.path.exists(os.path.join(pyFile,"graphs_export")):
+            os.mkdir(os.path.join(pyFile,"graphs_export"))
+        for f in os.listdir(os.path.join(pyFile,"graphs_export")):
+            os.remove(os.path.join(pyFile,"graphs_export",f))
+        Xs, Ys = self.getPlotData()
         thread = threading.Thread(target=self._exportGraphs_Worker, args=(Xs,Ys))
         thread.start()
         self.startSaveButtonDotter()
@@ -550,8 +554,13 @@ class humanoidParser(wx.App):
         self.MainLoop()
 
     def getData(self):
-        pass
-        return self.parserFrame.plotFrames[0].plotPanel.plotPanels[0].data
+        Xs, Ys = [], []
+        for frame in self.parserFrame.plotFrames:
+            X, Y = frame.getPlotData()
+            Xs.append(X)
+            Ys.append(Y)
+        data = {'X': Xs, 'Y': Ys}
+        return data
 
 
 if __name__ == '__main__':
