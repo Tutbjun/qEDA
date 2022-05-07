@@ -5,6 +5,7 @@ from copy import copy
 from functools import partial
 from genericpath import exists
 import os
+import threading
 import wx
 from wx.lib.agw.floatspin import FloatSpin
 import numpy as np
@@ -17,6 +18,7 @@ from matplotlib.widgets import Cursor
 from scipy import signal
 from numba import jit
 from pandas import DataFrame
+import sched, time
 
 #TODO: make UI updates according to sketch
 #TODO: make mouseover plot disapear when mouse is out of plot
@@ -353,6 +355,7 @@ class plotFrame(wx.Frame):
 
         self.saveButton = wx.Button(self, label="Save")
         self.vbox.Add(self.saveButton, flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
+        self.saveButton.Bind(wx.EVT_BUTTON, self.onSaveGraphs)
         self.SetSizer(self.vbox)
         
         
@@ -368,18 +371,57 @@ class plotFrame(wx.Frame):
         self.CreateStatusBar()
         self.SetStatusText("Welcome to wxPython!")
 
+    def _exportGraphs_Worker(self, Xs, Ys):
+        for i in range(len(Xs)):
+            X = Xs[i]
+            Y = Ys[i]
+            fileName = os.path.join(pyFile,"graphs_export",f"plotFrame_X_graph{i}.xlsx")
+            #if (fileName := os.path.join(pyFile,"graphs_export",f"plotFrame_X_graph{i}.xlsx")) in os.listdir():
+            df = DataFrame({"X":X, "Y":Y})
+            df.to_excel(fileName)
+            fileName = "".join(fileName.split(".")[:-1] + [".csv"])
+            df.to_csv(fileName)
+        self.endSaveButtonDotter()
+
     def onSaveGraphs(self, event):
         if not os.path.exists(os.path.join(pyFile,"graphs_export")):
             os.mkdir("graphs_export")
+        for f in os.listdir(os.path.join(pyFile,"graphs_export")):
+            os.remove(os.path.join(pyFile,"graphs_export",f))
+        Xs, Ys = [], []
         for i in range(len(self.plotPanel.plotPanels)):
             X,Y = self.plotPanel.plotPanels[i].getGraph()
-            if (fileName := os.path.join(pyFile,"graphs_export",f"plotFrame_X_graph{i}.xlsx")) in os.listdir():
-                os.remove(fileName)
-            df = DataFrame({"X":X, "Y":Y})
-            df.to_excel(fileName)
-            if (fileName := os.path.join(pyFile,"graphs_export",f"plotFrame_X_graph{i}.csv")) in os.listdir():
-                os.remove(fileName)
-            df.to_csv(fileName)
+            Xs.append(X)
+            Ys.append(Y)
+        thread = threading.Thread(target=self._exportGraphs_Worker, args=(Xs,Ys))
+        thread.start()
+        self.startSaveButtonDotter()
+        #self._exportGraphs_Worker(Xs, Ys)
+    
+    def saveButtonDottingRoutine(self):
+        self.dotCount += 1
+        btnLabel = "Saving"
+        for i in range(self.dotCount):
+            btnLabel += "."
+        
+        self.saveButton.SetLabel(btnLabel)
+        if self.saveButtonDottingActive:
+            #self.runAfter(1, self.saveButtonDottingRoutine)
+            self.scheduler.enter(1, 1, self.saveButtonDottingRoutine, ())
+            self.scheduler.run()
+        else:
+            self.saveButton.SetLabel("Save")
+
+    def startSaveButtonDotter(self):
+        self.dotCount = 0
+        self.saveButtonDottingActive = False
+        self.scheduler = sched.scheduler(time.time, time.sleep)
+        self.saveButtonDottingActive = True
+        self.saveButtonDottingRoutine()
+    
+    def endSaveButtonDotter(self):
+        self.saveButtonDottingActive = False
+        self.saveButton.SetLabel("Save")
 
     def onPlusButton(self, index, event):
         print(index)
@@ -412,9 +454,11 @@ class plotFrame(wx.Frame):
                 panels[i].minusButton.Bind(wx.EVT_BUTTON, partial(self.onMinusButton, i))
 
     def addPlotPanel(self,index : int = -1):
+        if index == len(self.plotPanel.plotPanels)-1:
+            index = -1
         if index == -1:
             self.plotPanel.plotPanels.append(plotPanel(self))
-            self.plotPanel.plotSizer.Add(self.plotPanel.plotPanels[index], 1, wx.EXPAND)
+            self.plotPanel.plotSizer.Add(self.plotPanel.plotPanels[index], flag=wx.EXPAND|wx.TOP|wx.BOTTOM, border=4)
             self.plotPanel.panelIds.append(len(self.plotPanel.panelIds))
         elif index < 0:
             raise IndexError("Index must be greater than or equal to -1")
@@ -429,14 +473,17 @@ class plotFrame(wx.Frame):
                 self.plotPanel.panelIds[i] += 1
         #index += 1
         #self.plotPanels.append(plotPanel(self))
-        self.bindPMButtons(self.plotPanel.plotPanels)
-        self.SetSizer(self.plotPanel.plotSizer)
-        #self.Fit()
-        self.Layout()
         self.plotPanel.plotPanels[index]._draw()
+        self.bindPMButtons(self.plotPanel.plotPanels)
+        self.plotPanel.SetSizer(self.plotPanel.plotSizer)
+        #self.SetSizer(self.plotPanel.plotSizer)
+        #self.Fit()
+        self.plotPanel.Layout()
+        self.Layout()
+        
     
     def removePlotPanel(self, index : int):
-        if len(self.plotPanels) > 1:
+        if len(self.plotPanel.plotPanels) > 1:
             #self.vbox.Remove(self.plotPanels[index])
             self.plotPanel.plotPanels[index].Destroy()
             self.plotPanel.plotPanels.pop(index)
@@ -502,9 +549,9 @@ class humanoidParser(wx.App):
         self.parserFrame.doShow()
         self.MainLoop()
 
-    """def getData(self):
+    def getData(self):
         pass
-        return self.parserFrame.plotFrames[0].plotPanel.plotPanels[0].data"""
+        return self.parserFrame.plotFrames[0].plotPanel.plotPanels[0].data
 
 
 if __name__ == '__main__':
